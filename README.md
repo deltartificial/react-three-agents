@@ -1,2 +1,3 @@
 # react-three-agents
- 🤖 Reinforcement Learning Agents in React Three Fiber
+
+🤖 Reinforcement Learning Agents in React Three Fiber
