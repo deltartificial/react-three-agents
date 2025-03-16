@@ -1,5 +1,5 @@
 // Server script to run the WebSocket server for R3F Agents
-import { AgentWebSocketServer } from "../packages/react-three-agents/src/server/WebSocketServer.js";
+import { AgentWebSocketServer } from "../packages/react-three-agents/dist/server/WebSocketServer.js";
 
 const PORT = 8765;
 

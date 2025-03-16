@@ -240,3 +240,6 @@ export function App() {
     </div>
   );
 }
+
+// Add default export
+export default App;
