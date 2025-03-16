@@ -1,0 +1,7 @@
+README.md
+setup.py
+r3f_agents.egg-info/PKG-INFO
+r3f_agents.egg-info/SOURCES.txt
+r3f_agents.egg-info/dependency_links.txt
+r3f_agents.egg-info/requires.txt
+r3f_agents.egg-info/top_level.txt

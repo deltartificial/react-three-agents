@@ -2,6 +2,77 @@
 
 A framework for training and visualizing reinforcement learning agents in 3D environments using React Three Fiber and Python.
 
+## Setup
+
+1. Install Node.js dependencies:
+
+   ```bash
+   npm install
+   ```
+
+2. Create a Python virtual environment:
+
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate
+   ```
+
+3. Install the Python SDK:
+
+   ```bash
+   cd packages/sdk-python
+   pip install -e .
+   cd ../..
+   ```
+
+4. Build the TypeScript library:
+   ```bash
+   npm run build:lib
+   ```
+
+## Running the Example
+
+You can run all components together:
+
+```bash
+npm start
+```
+
+Or run each component separately:
+
+1. Start the WebSocket server:
+
+   ```bash
+   npm run start:server
+   ```
+
+2. Start the React client:
+
+   ```bash
+   npm run start:client
+   ```
+
+3. Start the Python agent:
+   ```bash
+   npm run start:agent
+   ```
+
+## Project Structure
+
+- `packages/react-three-agents`: TypeScript/React library
+- `packages/sdk-python`: Python SDK
+- `example/client`: React client example
+- `example/r3f_agents_example`: Python agent example
+- `example/server.js`: WebSocket server example
+
+## Features
+
+- Real-time 3D visualization of RL agents using React Three Fiber
+- Bidirectional communication via WebSockets
+- Compatible interface with standard RL libraries (PyTorch, TensorFlow, etc.)
+- Easy-to-use React components for creating 3D scenes
+- Support for custom agent models and environments
+
 ## Architecture
 
 The project is structured in three main components:
@@ -22,14 +93,6 @@ The project is structured in three main components:
    - React application using the library
    - Python script using the SDK
    - Standalone WebSocket server
-
-## Features
-
-- Real-time 3D visualization of RL agents using React Three Fiber
-- Bidirectional communication via WebSockets
-- Compatible interface with standard RL libraries (PyTorch, TensorFlow, etc.)
-- Easy-to-use React components for creating 3D scenes
-- Support for custom agent models and environments
 
 ## Installation
 
