@@ -31,18 +31,34 @@ function AppComponent() {
   });
 
   const handleAgentAction = (action: AgentAction) => {
+    console.log("Handling agent action:", action);
     const server = getServerInstance();
     if (server && action.agentId) {
-      const currentState = server.getAgentState(action.agentId);
-      if (currentState) {
-        // Update the agent state with the new position from the action
-        const newPosition = action.position || currentState.position;
-        server.updateAgentState(action.agentId, {
-          ...currentState,
-          position: newPosition,
-          reward: Math.random() * 0.2,
-        });
-      }
+      // Récupérer l'état actuel de l'agent
+      const currentState = server.getAgentState(action.agentId) || {
+        position: [0, 0, 0],
+        rotation: [0, 0, 0],
+        reward: 0,
+        done: false,
+        action: "",
+      };
+
+      // Mettre à jour l'état avec la nouvelle position de l'action
+      const newPosition = action.position || currentState.position;
+
+      // Créer un nouvel état avec la position mise à jour
+      const newState = {
+        ...currentState,
+        position: newPosition,
+        reward: Math.random() * 0.2,
+      };
+
+      // Mettre à jour l'état de l'agent dans le serveur
+      console.log("Updating agent state:", newState);
+      server.updateAgentState(action.agentId, newState);
+
+      // Mettre à jour l'état local pour l'affichage
+      setAgentState(newState);
     }
   };
 

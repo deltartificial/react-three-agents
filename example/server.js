@@ -11,22 +11,27 @@ const server = new AgentWebSocketServer(PORT);
 server.onAction((action) => {
   console.log(`Received action from agent ${action.agentId}:`, action);
 
-  // You can implement custom logic here to process agent actions
-  // For example, update the environment state based on the action
-
-  // Send back a state update with a reward
-  const state = server.getAgentState(action.agentId) || {
+  // Get the current state of the agent
+  const currentState = server.getAgentState(action.agentId) || {
     position: [0, 0, 0],
     rotation: [0, 0, 0],
     reward: 0,
     done: false,
+    action: "",
   };
 
+  // Update the agent state with the new position from the action
+  const newPosition = action.position || currentState.position;
+
   // Update the agent state with a small reward
-  server.updateAgentState(action.agentId, {
-    ...state,
+  const newState = {
+    ...currentState,
+    position: newPosition,
     reward: 0.1, // Simple reward for taking an action
-  });
+  };
+
+  console.log(`Updating state for agent ${action.agentId}:`, newState);
+  server.updateAgentState(action.agentId, newState);
 });
 
 // Start the server

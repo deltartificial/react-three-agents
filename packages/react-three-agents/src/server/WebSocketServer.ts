@@ -204,11 +204,25 @@ export class AgentWebSocketServer {
     const newState = { ...currentState, ...state };
     this.agents.set(agentId, newState);
 
-    this.broadcast({
+    // Create the state message
+    const stateMessage: AgentMessage = {
       type: "state",
       agentId,
       data: newState,
-    });
+    };
+
+    // Broadcast to all clients
+    this.broadcast(stateMessage);
+
+    // Also send directly to the specific agent to ensure it receives the update
+    const sent = this.sendToAgent(agentId, stateMessage);
+    if (!sent) {
+      console.log(
+        `Could not send state update directly to agent ${agentId}. It might not be connected.`
+      );
+    } else {
+      console.log(`Sent state update directly to agent ${agentId}`);
+    }
 
     return newState;
   }
