@@ -28,6 +28,7 @@
     "@react-spring/three": "^9.6.1",
     "@types/three": "^0.150.2",
     "leva": "^0.9.35",
+    "uWebSockets.js": "uNetworking/uWebSockets.js#v20.4.0",
     "zustand": "^4.3.7"
   },
   "peerDependencies": {
