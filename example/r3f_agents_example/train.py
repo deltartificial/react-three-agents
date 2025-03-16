@@ -49,6 +49,15 @@ except ImportError as e:
     print("  3. Install the SDK: pip install -e ../../packages/sdk-python")
     sys.exit(1)
 
+# Check for TensorBoard
+TENSORBOARD_AVAILABLE = True
+try:
+    import tensorboard
+except ImportError:
+    TENSORBOARD_AVAILABLE = False
+    print("TensorBoard not found. Training will continue without TensorBoard logging.")
+    print("To enable TensorBoard logging, install it with: pip install tensorboard")
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Train an RL agent in the R3F environment")
     parser.add_argument("--algo", type=str, default="ppo", choices=["ppo", "a2c", "sac"], 
@@ -63,6 +72,8 @@ def parse_args():
                         help="Evaluate a trained model instead of training")
     parser.add_argument("--model-path", type=str, default="./models/best_model", 
                         help="Path to save/load the model")
+    parser.add_argument("--no-tensorboard", action="store_true",
+                        help="Disable TensorBoard logging even if available")
     return parser.parse_args()
 
 def make_env(websocket_url, agent_id, start_position, target_position):
@@ -111,22 +122,46 @@ def train_agent(args):
         name_prefix="rl_model"
     )
     
+    # Determine whether to use TensorBoard
+    use_tensorboard = TENSORBOARD_AVAILABLE and not args.no_tensorboard
+    tensorboard_log = log_dir if use_tensorboard else None
+    
     # Create the RL agent based on the selected algorithm
     if args.algo.lower() == "ppo":
-        model = PPO("MultiInputPolicy", env, verbose=1, tensorboard_log=log_dir)
+        model = PPO("MultiInputPolicy", env, verbose=1, tensorboard_log=tensorboard_log)
     elif args.algo.lower() == "a2c":
-        model = A2C("MultiInputPolicy", env, verbose=1, tensorboard_log=log_dir)
+        model = A2C("MultiInputPolicy", env, verbose=1, tensorboard_log=tensorboard_log)
     elif args.algo.lower() == "sac":
-        model = SAC("MultiInputPolicy", env, verbose=1, tensorboard_log=log_dir)
+        model = SAC("MultiInputPolicy", env, verbose=1, tensorboard_log=tensorboard_log)
     else:
         raise ValueError(f"Unsupported algorithm: {args.algo}")
     
     # Train the agent
     print(f"Training {args.algo.upper()} agent for {args.timesteps} timesteps...")
-    model.learn(
-        total_timesteps=args.timesteps,
-        callback=[eval_callback, checkpoint_callback]
-    )
+    try:
+        model.learn(
+            total_timesteps=args.timesteps,
+            callback=[eval_callback, checkpoint_callback]
+        )
+    except ImportError as e:
+        if "tensorboard" in str(e).lower():
+            print("\nError: TensorBoard logging failed. Retrying without TensorBoard...")
+            # Recreate the model without TensorBoard
+            if args.algo.lower() == "ppo":
+                model = PPO("MultiInputPolicy", env, verbose=1, tensorboard_log=None)
+            elif args.algo.lower() == "a2c":
+                model = A2C("MultiInputPolicy", env, verbose=1, tensorboard_log=None)
+            elif args.algo.lower() == "sac":
+                model = SAC("MultiInputPolicy", env, verbose=1, tensorboard_log=None)
+            
+            # Train without TensorBoard
+            model.learn(
+                total_timesteps=args.timesteps,
+                callback=[eval_callback, checkpoint_callback]
+            )
+        else:
+            # If it's a different ImportError, re-raise it
+            raise
     
     # Save the final model
     final_model_path = os.path.join(model_dir, "final_model")
