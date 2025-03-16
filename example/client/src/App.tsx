@@ -1,43 +1,88 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   Environment,
   Agent,
   AgentState,
   AgentAction,
+  getServerInstance,
 } from "../../../packages/react-three-agents/src";
 import { Canvas } from "@react-three/fiber";
 import { Suspense } from "react";
-import { Bvh } from "@react-three/drei";
+import { Bvh, OrbitControls, Stats } from "@react-three/drei";
 import "./App.css";
 import Experience from "./components/Experience";
-import { Leva } from "leva";
+import { Leva, useControls } from "leva";
 
 export function App() {
   const [agentState, setAgentState] = useState<AgentState | null>(null);
   const [serverStarted, setServerStarted] = useState(false);
+  const [agentHistory, setAgentHistory] = useState<
+    Array<[number, number, number]>
+  >([]);
+  const historyLimit = 100;
+  const frameCounter = useRef(0);
+  const [showStats, setShowStats] = useState(false);
 
-  // Handle agent actions
+  const { showTrail, trailColor, showMainScene, showAgentView } = useControls({
+    showTrail: { value: true, label: "Show Agent Trail" },
+    trailColor: { value: "#00a0ff", label: "Trail Color" },
+    showMainScene: { value: true, label: "Show Main Scene" },
+    showAgentView: { value: true, label: "Show Agent View" },
+  });
+
   const handleAgentAction = (action: AgentAction) => {
-    console.log("Agent action received:", action);
-    // You can implement custom logic here to process agent actions
+    const server = getServerInstance();
+    if (server && action.agentId) {
+      const currentState = server.getAgentState(action.agentId);
+      if (currentState) {
+        server.updateAgentState(action.agentId, {
+          ...currentState,
+          reward: Math.random() * 0.2,
+        });
+      }
+    }
   };
 
   useEffect(() => {
-    // Log connection status
     const handleConnect = () => {
-      console.log("Connected to RL agent");
       setServerStarted(true);
     };
 
     const handleDisconnect = () => {
-      console.log("Disconnected from RL agent");
       setServerStarted(false);
     };
 
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "s") {
+        setShowStats((prev) => !prev);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
     return () => {
-      // Cleanup if needed
+      window.removeEventListener("keydown", handleKeyDown);
     };
   }, []);
+
+  useEffect(() => {
+    if (agentState && agentState.position) {
+      frameCounter.current += 1;
+
+      if (frameCounter.current % 5 === 0) {
+        setAgentHistory((prev) => {
+          const newHistory = [
+            ...prev,
+            [...agentState.position] as [number, number, number],
+          ];
+          if (newHistory.length > historyLimit) {
+            return newHistory.slice(newHistory.length - historyLimit);
+          }
+          return newHistory;
+        });
+      }
+    }
+  }, [agentState]);
 
   return (
     <div style={{ width: "100vw", height: "100vh", background: "#1a1a1a" }}>
@@ -68,6 +113,7 @@ export function App() {
           backgroundColor: "rgba(0,0,0,0.5)",
           padding: "10px",
           borderRadius: "4px",
+          maxWidth: "300px",
         }}
       >
         <h3>Agent State</h3>
@@ -81,74 +127,116 @@ export function App() {
               Rotation: [
               {agentState.rotation.map((r: number) => r.toFixed(2)).join(", ")}]
             </div>
-            <div>Reward: {agentState.reward.toFixed(2)}</div>
+            <div>Reward: {agentState.reward.toFixed(4)}</div>
             <div>Action: {agentState.action || "none"}</div>
             <div>Done: {agentState.done ? "Yes" : "No"}</div>
           </>
         ) : (
           <div>Waiting for agent data...</div>
         )}
+        <div style={{ marginTop: "10px", fontSize: "12px" }}>
+          Press 'S' to toggle stats
+        </div>
       </div>
 
       <Leva collapsed />
 
-      {/* Main scene */}
-      <div style={{ position: "absolute", width: "100%", height: "100%" }}>
-        <Canvas
-          shadows
-          camera={{
-            fov: 65,
-            near: 0.1,
-            far: 1000,
-          }}
-          onPointerDown={(e) => {
-            if (e.pointerType === "mouse") {
-              (e.target as HTMLCanvasElement).requestPointerLock();
-            }
+      {/* Initialize the Environment with WebSocket server */}
+      <Environment
+        serverUrl="ws://localhost:8765"
+        startServer={true}
+        serverPort={8765}
+        onConnect={() => setServerStarted(true)}
+        onDisconnect={() => setServerStarted(false)}
+        onAgentAction={handleAgentAction}
+        noCanvas={true} // Don't wrap in Canvas
+      />
+
+      {showMainScene && (
+        <div style={{ position: "absolute", width: "100%", height: "100%" }}>
+          <Canvas
+            shadows
+            camera={{
+              fov: 65,
+              near: 0.1,
+              far: 1000,
+            }}
+            onPointerDown={(e) => {
+              if (e.pointerType === "mouse") {
+                (e.target as HTMLCanvasElement).requestPointerLock();
+              }
+            }}
+          >
+            {showStats && <Stats />}
+            <Suspense fallback={null}>
+              <Bvh firstHitOnly>
+                <Experience />
+              </Bvh>
+            </Suspense>
+          </Canvas>
+        </div>
+      )}
+
+      {showAgentView && (
+        <div
+          style={{
+            position: "absolute",
+            width: showMainScene ? "30%" : "100%",
+            height: showMainScene ? "30%" : "100%",
+            bottom: showMainScene ? 20 : 0,
+            right: showMainScene ? 20 : 0,
+            border: showMainScene ? "1px solid #444" : "none",
+            borderRadius: "4px",
+            overflow: "hidden",
           }}
         >
-          <Suspense fallback={null}>
-            <Bvh firstHitOnly>
-              <Experience />
-            </Bvh>
-          </Suspense>
-        </Canvas>
-      </div>
+          <Canvas shadows>
+            <ambientLight intensity={0.5} />
+            <directionalLight position={[10, 10, 5]} intensity={1} castShadow />
 
-      {/* Agent visualization */}
-      <div
-        style={{
-          position: "absolute",
-          width: "30%",
-          height: "30%",
-          bottom: 20,
-          right: 20,
-          border: "1px solid #444",
-          borderRadius: "4px",
-          overflow: "hidden",
-        }}
-      >
-        <Environment
-          serverUrl="ws://localhost:8765"
-          startServer={true}
-          serverPort={8765}
-          onConnect={() => console.log("Connected to RL server")}
-          onDisconnect={() => console.log("Disconnected from RL server")}
-          onAgentAction={handleAgentAction}
-        >
-          {/* Ground plane */}
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.5, 0]}>
-            <planeGeometry args={[20, 20]} />
-            <meshStandardMaterial color="#303030" />
-          </mesh>
+            <mesh
+              rotation={[-Math.PI / 2, 0, 0]}
+              position={[0, -0.5, 0]}
+              receiveShadow
+            >
+              <planeGeometry args={[50, 50]} />
+              <meshStandardMaterial color="#303030" />
+            </mesh>
 
-          {/* Grid helper */}
-          <gridHelper args={[20, 20, "#666666", "#444444"]} />
+            <gridHelper args={[50, 50, "#666666", "#444444"]} />
 
-          {/* Agent */}
-          <Agent id="main" onStateChange={setAgentState} />
-        </Environment>
-      </div>
+            {showTrail && agentHistory.length > 1 && (
+              <line>
+                <bufferGeometry attach="geometry">
+                  <bufferAttribute
+                    attach="attributes-position"
+                    count={agentHistory.length}
+                    array={new Float32Array(agentHistory.flat())}
+                    itemSize={3}
+                  />
+                </bufferGeometry>
+                <lineBasicMaterial
+                  attach="material"
+                  color={trailColor}
+                  linewidth={2}
+                />
+              </line>
+            )}
+
+            <Agent
+              id="main"
+              onStateChange={setAgentState}
+              color={trailColor}
+              size={1.2}
+              showLabel={true}
+              labelContent={(state) => `Reward: ${state.reward.toFixed(2)}`}
+              smoothing={0.15}
+            />
+
+            <OrbitControls />
+          </Canvas>
+        </div>
+      )}
     </div>
   );
 }

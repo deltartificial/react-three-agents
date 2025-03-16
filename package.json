@@ -7,7 +7,13 @@
   ],
   "scripts": {
     "dev": "vite",
-    "build": "vite build && tsc",
+    "build": "npm run build:lib && npm run build:client",
+    "build:lib": "cd packages/react-three-agents && npm run build",
+    "build:client": "cd example/client && npm run build",
+    "start:server": "node example/server.js",
+    "start:client": "cd example/client && npm run dev",
+    "start:agent": "cd example/r3f_agents_example && python train.py",
+    "start": "concurrently \"npm run start:server\" \"npm run start:client\"",
     "preview": "vite preview"
   },
   "devDependencies": {
@@ -17,6 +23,7 @@
     "@types/react": "^18.2.37",
     "@types/react-dom": "^18.2.15",
     "@vitejs/plugin-react": "^4.3.3",
+    "concurrently": "^8.2.2",
     "r3f-perf": "^7.2.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

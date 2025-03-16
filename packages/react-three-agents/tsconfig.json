@@ -6,14 +6,15 @@
     "skipDefaultLibCheck": true,
     "skipLibCheck": true,
     "target": "ESNext",
-    "verbatimModuleSyntax": true,
+    "verbatimModuleSyntax": false,
     "strict": true,
     "emitDeclarationOnly": true,
     "moduleResolution": "node",
     "strictNullChecks": false,
     "jsx": "react",
     "declaration": true,
-    "lib": ["es2022", "dom"]
+    "lib": ["es2022", "dom"],
+    "types": ["node"]
   },
   "include": ["src/**/*"]
 }

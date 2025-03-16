@@ -33,7 +33,7 @@
     "@react-spring/three": "^9.6.1",
     "@types/three": "^0.150.2",
     "leva": "^0.9.35",
-    "uWebSockets.js": "uNetworking/uWebSockets.js#v20.4.0",
+    "ws": "^8.16.0",
     "zustand": "^4.3.7"
   },
   "peerDependencies": {
@@ -43,5 +43,10 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "three": ">=0.150.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "@types/ws": "^8.5.10",
+    "typescript": "^5.4.2"
   }
 }

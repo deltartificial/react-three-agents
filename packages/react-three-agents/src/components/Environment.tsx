@@ -14,6 +14,8 @@ interface EnvironmentProps {
   onConnect?: () => void;
   onDisconnect?: () => void;
   onAgentAction?: (action: AgentAction) => void;
+  noCanvas?: boolean;
+  canvasProps?: Record<string, any>;
 }
 
 // Singleton server instance
@@ -27,6 +29,8 @@ export function Environment({
   onConnect,
   onDisconnect,
   onAgentAction,
+  noCanvas = false,
+  canvasProps = {},
 }: EnvironmentProps) {
   const connect = useAgentConnection((state) => state.connect);
   const disconnect = useAgentConnection((state) => state.disconnect);
@@ -73,8 +77,14 @@ export function Environment({
     }
   }, [connected, onConnect, onDisconnect]);
 
+  // If noCanvas is true, just return the children
+  if (noCanvas) {
+    return <>{children}</>;
+  }
+
+  // Otherwise, wrap in Canvas with default or custom props
   return (
-    <Canvas>
+    <Canvas {...canvasProps}>
       <ambientLight intensity={0.5} />
       <pointLight position={[10, 10, 10]} />
       <OrbitControls />

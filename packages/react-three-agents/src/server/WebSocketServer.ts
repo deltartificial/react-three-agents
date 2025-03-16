@@ -1,5 +1,6 @@
-import { App, WebSocket, TemplatedApp } from "uWebSockets.js";
+import { WebSocketServer, WebSocket } from "ws";
 import type { AgentMessage, AgentState } from "../core/AgentConnection";
+import { IncomingMessage } from "http";
 
 interface WebSocketConnection {
   ws: WebSocket;
@@ -15,7 +16,7 @@ export interface AgentAction {
 }
 
 export class AgentWebSocketServer {
-  private app: TemplatedApp;
+  private server: WebSocketServer | null = null;
   private connections: Map<string, WebSocketConnection>;
   private agents: Map<string, AgentState>;
   private port: number;
@@ -26,23 +27,19 @@ export class AgentWebSocketServer {
     this.port = port;
     this.connections = new Map();
     this.agents = new Map();
-    this.app = App();
-
-    this.setupWebSocketServer();
   }
 
   private setupWebSocketServer() {
-    this.app.ws("/*", {
-      open: (ws: WebSocket) => {
-        const id = Math.random().toString(36).substring(7);
-        this.connections.set(id, { ws, id });
-        console.log(`Client connected: ${id}`);
-      },
-      message: (ws: WebSocket, message: ArrayBuffer) => {
+    this.server = new WebSocketServer({ port: this.port });
+
+    this.server.on("connection", (ws: WebSocket, request: IncomingMessage) => {
+      const id = Math.random().toString(36).substring(7);
+      this.connections.set(id, { ws, id });
+      console.log(`Client connected: ${id}`);
+
+      ws.on("message", (message: any) => {
         try {
-          const data = JSON.parse(
-            new TextDecoder().decode(message)
-          ) as AgentMessage;
+          const data = JSON.parse(message.toString()) as AgentMessage;
 
           // Register agent ID with connection
           const connection = Array.from(this.connections.entries()).find(
@@ -99,8 +96,9 @@ export class AgentWebSocketServer {
         } catch (error) {
           console.error("Failed to parse message:", error);
         }
-      },
-      close: (ws: WebSocket) => {
+      });
+
+      ws.on("close", () => {
         const connection = Array.from(this.connections.entries()).find(
           ([_, conn]) => conn.ws === ws
         );
@@ -115,29 +113,56 @@ export class AgentWebSocketServer {
             this.agents.delete(conn.agentId);
           }
         }
-      },
+      });
+    });
+
+    this.server.on("error", (error: any) => {
+      console.error("WebSocket server error:", error);
     });
   }
 
   public start(): boolean {
-    let success = false;
-    this.app.listen(this.port, (listenSocket: boolean) => {
-      if (listenSocket) {
-        console.log(`WebSocket server is running on port ${this.port}`);
-        this.isRunning = true;
-        success = true;
-      } else {
-        console.error(`Failed to start WebSocket server on port ${this.port}`);
-        this.isRunning = false;
-        success = false;
-      }
-    });
-    return success;
+    try {
+      this.setupWebSocketServer();
+      this.isRunning = true;
+      console.log(`WebSocket server is running on port ${this.port}`);
+      return true;
+    } catch (error) {
+      console.error(
+        `Failed to start WebSocket server on port ${this.port}:`,
+        error
+      );
+      this.isRunning = false;
+      return false;
+    }
   }
 
   public stop() {
-    if (this.isRunning) {
-      this.app.close();
+    if (this.isRunning && this.server) {
+      // Close all connections
+      this.connections.forEach(({ ws }) => {
+        try {
+          ws.close();
+        } catch (e) {
+          console.error("Error closing connection:", e);
+        }
+      });
+
+      // Close the server
+      this.server.close((err?: Error) => {
+        if (err) {
+          console.error("Error closing WebSocket server:", err);
+        } else {
+          console.log("WebSocket server closed successfully");
+        }
+      });
+
+      // Clear collections
+      this.connections.clear();
+      this.agents.clear();
+      this.server = null;
+
+      // Mark as stopped
       this.isRunning = false;
       console.log("WebSocket server stopped");
     }
@@ -146,7 +171,7 @@ export class AgentWebSocketServer {
   public broadcast(message: AgentMessage, exclude?: WebSocket) {
     const messageStr = JSON.stringify(message);
     this.connections.forEach(({ ws }) => {
-      if (ws !== exclude) {
+      if (ws !== exclude && ws.readyState === WebSocket.OPEN) {
         ws.send(messageStr);
       }
     });
@@ -159,8 +184,10 @@ export class AgentWebSocketServer {
 
     if (connection) {
       const [_, { ws }] = connection;
-      ws.send(JSON.stringify(message));
-      return true;
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(message));
+        return true;
+      }
     }
     return false;
   }
