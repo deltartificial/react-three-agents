@@ -35,8 +35,11 @@ function AppComponent() {
     if (server && action.agentId) {
       const currentState = server.getAgentState(action.agentId);
       if (currentState) {
+        // Update the agent state with the new position from the action
+        const newPosition = action.position || currentState.position;
         server.updateAgentState(action.agentId, {
           ...currentState,
+          position: newPosition,
           reward: Math.random() * 0.2,
         });
       }
@@ -44,12 +47,37 @@ function AppComponent() {
   };
 
   useEffect(() => {
+    // Initialize the connection to the WebSocket server
+    const initializeConnection = async () => {
+      const server = getServerInstance();
+
+      // If the server instance exists, set up event handlers
+      if (server) {
+        console.log("Server instance found, setting up event handlers");
+
+        // Set up action handler
+        server.onAction((action) => {
+          console.log("Received action from agent:", action);
+          handleAgentAction(action);
+        });
+      } else {
+        console.warn(
+          "No server instance found. Make sure the server is running."
+        );
+      }
+    };
+
+    // Call the initialization function
+    initializeConnection();
+
     const handleConnect = () => {
       setServerStarted(true);
+      console.log("Connected to WebSocket server");
     };
 
     const handleDisconnect = () => {
       setServerStarted(false);
+      console.log("Disconnected from WebSocket server");
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
