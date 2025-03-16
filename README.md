@@ -1,32 +1,53 @@
 # React Three Agents
 
-A framework for training and visualizing reinforcement learning agents in 3D environments using React Three Fiber and Python.
+Un framework pour l'entraînement et la visualisation d'agents d'apprentissage par renforcement dans des environnements 3D utilisant React Three Fiber et Python.
 
-## Features
+## Architecture
 
-- Real-time 3D visualization of RL agents using React Three Fiber
-- WebSocket-based communication between Python agents and the 3D environment
-- Gymnasium-compatible environment interface
-- Easy-to-use React components for creating 3D scenes
-- Support for custom agent models and environments
+Le projet est structuré en trois composants principaux:
+
+1. **Librairie TypeScript/React** (`packages/react-three-agents`):
+
+   - Composants React pour la visualisation 3D
+   - Serveur WebSocket intégré avec uWebSockets.js
+   - Gestion d'état avec Zustand
+
+2. **SDK Python** (`packages/sdk-python`):
+
+   - Interface compatible avec Gymnasium
+   - Communication WebSocket avec le serveur
+   - Support pour les espaces d'action discrets et continus
+
+3. **Exemples** (`example/`):
+   - Application React qui utilise la librairie
+   - Script Python qui utilise le SDK
+   - Serveur WebSocket standalone
+
+## Fonctionnalités
+
+- Visualisation en temps réel d'agents RL en 3D avec React Three Fiber
+- Communication bidirectionnelle via WebSockets
+- Interface compatible avec les bibliothèques RL standard (PyTorch, TensorFlow, etc.)
+- Composants React faciles à utiliser pour créer des scènes 3D
+- Support pour des modèles d'agents et des environnements personnalisés
 
 ## Installation
 
-### TypeScript/React Library
+### Librairie TypeScript/React
 
 ```bash
 npm install react-three-agents
 ```
 
-### Python SDK
+### SDK Python
 
 ```bash
 pip install r3f-agents
 ```
 
-## Usage
+## Utilisation
 
-### React Components
+### Composants React
 
 ```tsx
 import { Environment, Agent } from "react-three-agents";
@@ -34,7 +55,10 @@ import { Environment, Agent } from "react-three-agents";
 function App() {
   return (
     <div style={{ width: "100vw", height: "100vh" }}>
-      <Environment serverUrl="ws://localhost:8765">
+      <Environment
+        serverUrl="ws://localhost:8765"
+        startServer={true} // Démarre automatiquement un serveur WebSocket
+      >
         <Agent id="main" />
       </Environment>
     </div>
@@ -42,15 +66,15 @@ function App() {
 }
 ```
 
-### Python SDK
+### SDK Python
 
 ```python
 from r3f_agents.environment import R3FEnv
 
-# Create the environment
-env = R3FEnv(websocket_url="ws://localhost:8765")
+# Créer l'environnement
+env = R3FEnv(websocket_url="ws://localhost:8765", agent_id="main")
 
-# Use with your favorite RL library
+# Utiliser avec votre bibliothèque RL préférée
 observation, info = env.reset()
 
 for _ in range(1000):
@@ -63,36 +87,43 @@ for _ in range(1000):
 env.close()
 ```
 
-## Development
+## Développement
 
-1. Install dependencies:
+1. Installer les dépendances:
 
 ```bash
 npm install
 ```
 
-2. Build the library:
+2. Construire la librairie:
 
 ```bash
+cd packages/react-three-agents
 npm run build
 ```
 
-3. Run the example:
+3. Exécuter l'exemple:
 
 ```bash
 cd example
-npm install
-npm start
+node server.js
 ```
 
-4. In another terminal, run the Python example:
+4. Dans un autre terminal, démarrer l'application React:
 
 ```bash
-cd packages/sdk-python
-pip install -e .
-python examples/simple_agent.py
+cd example/client
+npm install
+npm run dev
 ```
 
-## License
+5. Dans un troisième terminal, lancer l'agent Python:
+
+```bash
+cd example/r3f_agents_example
+python train.py
+```
+
+## Licence
 
 MIT
