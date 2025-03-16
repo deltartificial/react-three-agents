@@ -12,6 +12,11 @@ export default {
     host: true,
     open: !isCodeSandbox, // Open if it's not a CodeSandbox
   },
+  resolve: {
+    alias: {
+      src: "/packages/react-three-agents/src",
+    },
+  },
   build: {
     outDir: "./exampleDist",
     emptyOutDir: true,

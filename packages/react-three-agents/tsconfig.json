@@ -15,5 +15,5 @@
     "declaration": true,
     "lib": ["es2022", "dom"]
   },
-  "include": ["packages/react-three-agents/src/**/*"]
+  "include": ["src/**/*"]
 }

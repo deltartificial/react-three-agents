@@ -13,6 +13,11 @@ const dev = defineConfig({
     host: true,
     open: !isCodeSandbox,
   },
+  resolve: {
+    alias: {
+      src: "/packages/react-three-agents/src",
+    },
+  },
 });
 
 export default process.argv[2] ? build : dev;
