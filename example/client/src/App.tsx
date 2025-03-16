@@ -13,7 +13,7 @@ import "./App.css";
 import Experience from "./components/Experience";
 import { Leva, useControls } from "leva";
 
-export function App() {
+function AppComponent() {
   const [agentState, setAgentState] = useState<AgentState | null>(null);
   const [serverStarted, setServerStarted] = useState(false);
   const [agentHistory, setAgentHistory] = useState<
@@ -144,7 +144,7 @@ export function App() {
       {/* Initialize the Environment with WebSocket server */}
       <Environment
         serverUrl="ws://localhost:8765"
-        startServer={true}
+        startServer={false}
         serverPort={8765}
         onConnect={() => setServerStarted(true)}
         onDisconnect={() => setServerStarted(false)}
@@ -241,5 +241,4 @@ export function App() {
   );
 }
 
-// Add default export
-export default App;
+export default AppComponent;

@@ -39,7 +39,11 @@ export function Environment({
 
   // Start server if needed
   useEffect(() => {
-    if (startServer && !serverInstance) {
+    // Check if we're in a browser environment
+    const isBrowser = typeof window !== "undefined";
+
+    // Only start server if we're not in a browser and startServer is true
+    if (startServer && !serverInstance && !isBrowser) {
       serverInstance = new AgentWebSocketServer(serverPort);
 
       if (onAgentAction) {
@@ -55,6 +59,13 @@ export function Environment({
           serverInstance = null;
         }
       };
+    } else if (isBrowser && startServer) {
+      // In browser, just log that we can't start the server here
+      console.log(
+        "WebSocket server can't be started in the browser. Use the standalone server instead."
+      );
+      // We'll still connect to the server
+      setServerStarted(true);
     }
   }, [startServer, serverPort, onAgentAction]);
 
