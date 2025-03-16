@@ -3,10 +3,12 @@ import { Suspense } from "react";
 import { Bvh } from "@react-three/drei";
 import "./App.css";
 import Experience from "./components/Experience";
+import { Leva } from "leva";
 
 function App() {
   return (
     <div style={{ width: "100vw", height: "100vh" }}>
+      <Leva collapsed />
       <Canvas
         shadows
         camera={{
