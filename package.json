@@ -13,7 +13,7 @@
     "build:client": "cd example/client && npm run build",
     "start:server": "node example/server.js",
     "start:client": "cd example/client && npm run dev",
-    "start:agent": "source venv/bin/activate && cd example/r3f_agents_example && python3 train.py",
+    "start:agent": "chmod +x example/r3f_agents_example/run_training.sh && example/r3f_agents_example/run_training.sh",
     "start": "concurrently \"npm run start:server\" \"npm run start:client\" \"npm run start:agent\"",
     "preview": "vite preview"
   },

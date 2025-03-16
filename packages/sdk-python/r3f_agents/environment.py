@@ -18,7 +18,10 @@ class R3FEnv(gym.Env):
                  websocket_url: str = "ws://localhost:8765",
                  agent_id: str = "main",
                  observation_space_config: Optional[Dict] = None,
-                 action_space_config: Optional[Dict] = None):
+                 action_space_config: Optional[Dict] = None,
+                 target_position: Optional[List[float]] = None,
+                 start_position: Optional[List[float]] = None,
+                 max_episode_steps: int = 1000):
         """
         Initialize the R3F environment.
         
@@ -27,6 +30,9 @@ class R3FEnv(gym.Env):
             agent_id: Unique identifier for this agent
             observation_space_config: Custom observation space configuration
             action_space_config: Custom action space configuration
+            target_position: Target position [x, y, z] for navigation task
+            start_position: Start position [x, y, z] for the agent
+            max_episode_steps: Maximum number of steps per episode
         """
         super().__init__()
         
@@ -37,6 +43,14 @@ class R3FEnv(gym.Env):
         self.connected = False
         self.last_message_time = 0
         self.timeout = 5.0  # seconds
+        
+        # Navigation task parameters
+        self.target_position = np.array(target_position if target_position else [10.0, 0.0, 10.0], dtype=np.float32)
+        self.start_position = np.array(start_position if start_position else [0.0, 0.0, 0.0], dtype=np.float32)
+        self.max_episode_steps = max_episode_steps
+        self.current_step = 0
+        self.target_radius = 1.0  # Distance to consider target reached
+        self.previous_distance = None  # To calculate reward based on progress
         
         # Configure action space
         if action_space_config and action_space_config.get('type') == 'discrete':
@@ -56,7 +70,7 @@ class R3FEnv(gym.Env):
         if observation_space_config:
             self.observation_space = self._create_custom_observation_space(observation_space_config)
         else:
-            # Default observation space
+            # Default observation space: position, rotation, target position, distance to target
             self.observation_space = spaces.Dict({
                 'position': spaces.Box(
                     low=-np.inf,
@@ -68,6 +82,18 @@ class R3FEnv(gym.Env):
                     low=-np.pi,
                     high=np.pi,
                     shape=(3,),
+                    dtype=np.float32
+                ),
+                'target_position': spaces.Box(
+                    low=-np.inf,
+                    high=np.inf,
+                    shape=(3,),
+                    dtype=np.float32
+                ),
+                'distance_to_target': spaces.Box(
+                    low=0,
+                    high=np.inf,
+                    shape=(1,),
                     dtype=np.float32
                 )
             })
@@ -168,6 +194,51 @@ class R3FEnv(gym.Env):
             print(f"Error receiving state: {e}")
             raise
     
+    def set_target_position(self, target_position: List[float]):
+        """Set the target position for navigation task."""
+        self.target_position = np.array(target_position, dtype=np.float32)
+        print(f"Target position set to: {self.target_position}")
+    
+    def set_start_position(self, start_position: List[float]):
+        """Set the start position for the agent."""
+        self.start_position = np.array(start_position, dtype=np.float32)
+        print(f"Start position set to: {self.start_position}")
+    
+    def _calculate_reward(self, position: np.ndarray) -> Tuple[float, bool]:
+        """
+        Calculate reward based on distance to target and progress.
+        
+        Returns:
+            Tuple of (reward, done)
+        """
+        # Calculate distance to target
+        distance = np.linalg.norm(position - self.target_position)
+        
+        # Check if target reached
+        if distance < self.target_radius:
+            return 10.0, True  # High reward for reaching target
+        
+        # Calculate reward based on progress towards target
+        if self.previous_distance is not None:
+            # Reward for moving closer to target, penalty for moving away
+            progress_reward = self.previous_distance - distance
+            # Scale the reward
+            progress_reward = progress_reward * 0.5
+        else:
+            progress_reward = 0.0
+        
+        # Small penalty for each step to encourage efficiency
+        step_penalty = -0.01
+        
+        # Update previous distance
+        self.previous_distance = distance
+        
+        # Check if episode should end (max steps reached)
+        done = self.current_step >= self.max_episode_steps
+        
+        # Return combined reward
+        return progress_reward + step_penalty, done
+    
     def reset(self, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[Dict[str, np.ndarray], Dict]:
         """Reset the environment to an initial state."""
         super().reset(seed=seed)
@@ -175,11 +246,18 @@ class R3FEnv(gym.Env):
         if self.loop is None:
             self.loop = asyncio.get_event_loop()
         
-        # Send reset message
+        # Reset step counter
+        self.current_step = 0
+        self.previous_distance = None
+        
+        # Send reset message with start position
         self.loop.run_until_complete(self._send_message({
             'type': 'reset',
             'agentId': self.agent_id,
-            'data': {}
+            'data': {
+                'position': self.start_position.tolist(),
+                'target_position': self.target_position.tolist()
+            }
         }))
         
         # Receive initial state
@@ -199,6 +277,8 @@ class R3FEnv(gym.Env):
         Returns:
             observation, reward, done, truncated, info
         """
+        self.current_step += 1
+        
         # Convert discrete action to continuous if needed
         if self.action_type == 'discrete' and isinstance(action, (int, np.integer)):
             # Map discrete actions to movements
@@ -229,20 +309,42 @@ class R3FEnv(gym.Env):
         if 'data' in state:
             self._agent_state.update(state.get('data', {}))
         
+        # Calculate reward and check if done
+        position = np.array(self._agent_state.get('position', [0, 0, 0]), dtype=np.float32)
+        reward, done = self._calculate_reward(position)
+        
+        # Update agent state with reward and done
+        self._agent_state['reward'] = reward
+        self._agent_state['done'] = done
+        
         return (
             self._get_obs(),
-            self._agent_state.get('reward', 0.0),
-            self._agent_state.get('done', False),
+            reward,
+            done,
             False,  # truncated
-            {}  # info
+            {'target_position': self.target_position.tolist(), 'distance': self.previous_distance}  # info
         )
     
     def _get_obs(self) -> Dict[str, np.ndarray]:
         """Convert agent state to observation."""
+        position = np.array(self._agent_state.get('position', [0, 0, 0]), dtype=np.float32)
+        rotation = np.array(self._agent_state.get('rotation', [0, 0, 0]), dtype=np.float32)
+        
+        # Calculate distance to target
+        distance = np.linalg.norm(position - self.target_position)
+        
         if isinstance(self.observation_space, spaces.Dict):
             obs = {}
             for key in self.observation_space.spaces:
-                if key in self._agent_state:
+                if key == 'position':
+                    obs[key] = position
+                elif key == 'rotation':
+                    obs[key] = rotation
+                elif key == 'target_position':
+                    obs[key] = self.target_position
+                elif key == 'distance_to_target':
+                    obs[key] = np.array([distance], dtype=np.float32)
+                elif key in self._agent_state:
                     value = self._agent_state[key]
                     if isinstance(value, list):
                         obs[key] = np.array(value, dtype=np.float32)

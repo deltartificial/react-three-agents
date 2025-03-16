@@ -8,6 +8,8 @@ setup(
         "websockets>=10.0",
         "numpy>=1.21.0",
         "gymnasium>=0.26.0",
+        "stable-baselines3>=2.0.0",
+        "torch>=2.0.0",
     ],
     author="delartificial",
     author_email="",

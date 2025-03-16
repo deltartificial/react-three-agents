@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from "react";
 import {
   Environment,
   Agent,
-  AgentState,
+  AgentState as BaseAgentState,
   AgentAction,
   getServerInstance,
 } from "../../../packages/react-three-agents/src";
@@ -13,8 +13,13 @@ import "./App.css";
 import Experience from "./components/Experience";
 import { Leva, useControls } from "leva";
 
+// Extend the AgentState type to include target_position
+interface ExtendedAgentState extends BaseAgentState {
+  target_position?: [number, number, number];
+}
+
 function AppComponent() {
-  const [agentState, setAgentState] = useState<AgentState | null>(null);
+  const [agentState, setAgentState] = useState<ExtendedAgentState | null>(null);
   const [serverStarted, setServerStarted] = useState(false);
   const [agentHistory, setAgentHistory] = useState<
     Array<[number, number, number]>
@@ -23,34 +28,78 @@ function AppComponent() {
   const frameCounter = useRef(0);
   const [showStats, setShowStats] = useState(false);
 
-  const { showTrail, trailColor, showMainScene, showAgentView } = useControls({
+  const {
+    showTrail,
+    trailColor,
+    showMainScene,
+    showAgentView,
+    startPosition,
+    targetPosition,
+  } = useControls({
     showTrail: { value: true, label: "Show Agent Trail" },
     trailColor: { value: "#00a0ff", label: "Trail Color" },
     showMainScene: { value: true, label: "Show Main Scene" },
     showAgentView: { value: true, label: "Show Agent View" },
+    startPosition: {
+      value: [0, 0, 0],
+      step: 1,
+      label: "Start Position",
+    },
+    targetPosition: {
+      value: [10, 0, 10],
+      step: 1,
+      label: "Target Position",
+    },
   });
+
+  // Ensure targetPosition is a tuple of 3 numbers
+  const getTargetPosition = (): [number, number, number] => {
+    if (Array.isArray(targetPosition) && targetPosition.length >= 3) {
+      return [targetPosition[0], targetPosition[1], targetPosition[2]];
+    }
+    return [10, 0, 10]; // Default target position
+  };
 
   const handleAgentAction = (action: AgentAction) => {
     console.log("Handling agent action:", action);
     const server = getServerInstance();
     if (server && action.agentId) {
       // Récupérer l'état actuel de l'agent
-      const currentState = server.getAgentState(action.agentId) || {
+      const currentState = (server.getAgentState(
+        action.agentId
+      ) as ExtendedAgentState) || {
         position: [0, 0, 0],
         rotation: [0, 0, 0],
         reward: 0,
         done: false,
         action: "",
+        target_position: getTargetPosition(),
       };
 
       // Mettre à jour l'état avec la nouvelle position de l'action
       const newPosition = action.position || currentState.position;
 
+      // Calculer la distance au point cible
+      const targetPos = getTargetPosition();
+      const dx = newPosition[0] - targetPos[0];
+      const dy = newPosition[1] - targetPos[1];
+      const dz = newPosition[2] - targetPos[2];
+      const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+      // Calculer la récompense basée sur la distance
+      // Plus l'agent est proche de la cible, plus la récompense est élevée
+      const distanceReward = Math.max(0, 1 - distance / 20); // Normaliser entre 0 et 1
+
+      // Vérifier si l'agent a atteint la cible
+      const targetReached = distance < 1.0;
+
       // Créer un nouvel état avec la position mise à jour
-      const newState = {
+      const newState: ExtendedAgentState = {
         ...currentState,
         position: newPosition,
-        reward: Math.random() * 0.2,
+        reward: targetReached ? 10.0 : distanceReward,
+        done: targetReached,
+        target_position: targetPos,
       };
 
       // Mettre à jour l'état de l'agent dans le serveur
@@ -76,6 +125,21 @@ function AppComponent() {
           console.log("Received action from agent:", action);
           handleAgentAction(action);
         });
+
+        // Initialize agent with start and target positions
+        const initialState: ExtendedAgentState = {
+          position:
+            Array.isArray(startPosition) && startPosition.length >= 3
+              ? [startPosition[0], startPosition[1], startPosition[2]]
+              : [0, 0, 0],
+          rotation: [0, 0, 0] as [number, number, number],
+          reward: 0,
+          done: false,
+          action: "",
+          target_position: getTargetPosition(),
+        };
+
+        server.updateAgentState("main", initialState);
       } else {
         console.warn(
           "No server instance found. Make sure the server is running."
@@ -107,7 +171,7 @@ function AppComponent() {
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, []);
+  }, [startPosition, targetPosition]);
 
   useEffect(() => {
     if (agentState && agentState.position) {
@@ -174,6 +238,15 @@ function AppComponent() {
             <div>Reward: {agentState.reward.toFixed(4)}</div>
             <div>Action: {agentState.action || "none"}</div>
             <div>Done: {agentState.done ? "Yes" : "No"}</div>
+            {agentState.target_position && (
+              <div>
+                Target: [
+                {agentState.target_position
+                  .map((p: number) => p.toFixed(2))
+                  .join(", ")}
+                ]
+              </div>
+            )}
           </>
         ) : (
           <div>Waiting for agent data...</div>

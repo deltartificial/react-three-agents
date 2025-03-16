@@ -17,6 +17,8 @@ Description-Content-Type: text/markdown
 Requires-Dist: websockets>=10.0
 Requires-Dist: numpy>=1.21.0
 Requires-Dist: gymnasium>=0.26.0
+Requires-Dist: stable-baselines3>=2.0.0
+Requires-Dist: torch>=2.0.0
 Dynamic: author
 Dynamic: classifier
 Dynamic: description
