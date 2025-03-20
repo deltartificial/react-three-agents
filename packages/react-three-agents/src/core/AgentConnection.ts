@@ -1,212 +1,114 @@
-import { create } from "zustand";
-import { useConnectionStore } from './connection/connection.store'
+import type { WebSocketMessage } from '../types/message.types'
+import type { EnvironmentConfig } from '../types/environment.types'
+import { create } from 'zustand'
+
+export const useAgentConnection = create<Store>((set) => ({
+  connected: false,
+  agents: new Map(),
+  error: null,
+  socket: null,
+  connect: async (url, config) => set({ connected: true }),
+  disconnect: () => set({ connected: false }),
+  sendMessage: () => {},
+  updateAgentState: (agentId, state) => set((store) => {
+    const agents = new Map(store.agents)
+    agents.set(agentId, { ...agents.get(agentId), ...state } as AgentState)
+    return { agents }
+  }),
+  setError: (error) => set({ error })
+}))
 
 export interface AgentState {
-  position: [number, number, number];
-  rotation: [number, number, number];
-  action: string;
-  reward: number;
-  done: boolean;
-  message?: string;
-  error?: string;
-  agentDisconnected?: string;
-  [key: string]: any; // Allow for custom properties
+  position: [number, number, number]
+  rotation: [number, number, number]
+  action: string
+  reward: number
+  done: boolean
+  message?: string
+  error?: string
+  agentDisconnected?: string
+  [key: string]: unknown
 }
 
 export interface AgentMessage {
-  type: "state" | "action" | "reset" | "info" | "error";
-  agentId: string;
-  data: Partial<AgentState>;
+  type: 'state' | 'action' | 'reset' | 'info' | 'error'
+  agentId: string
+  data: Partial<AgentState>
 }
 
-interface ConnectionStore {
-  socket: WebSocket | null;
-  connected: boolean;
-  agents: Map<string, AgentState>;
-  connect: (url: string) => void;
-  disconnect: () => void;
-  sendMessage: (message: AgentMessage) => void;
-  updateAgentState: (agentId: string, state: Partial<AgentState>) => void;
-  onError?: (error: string) => void;
+interface Store {
+  connected: boolean
+  agents: Map<string, AgentState>
+  error: string | null
+  socket: WebSocket | null
+  connect: (url: string, config: EnvironmentConfig) => Promise<void>
+  disconnect: () => void
+  sendMessage: (message: AgentMessage) => void
+  updateAgentState: (agentId: string, state: Partial<AgentState>) => void
+  setError: (error: string | null) => void
 }
-
-export const useAgentConnection = create<ConnectionStore>((set, get) => ({
-  socket: null,
-  connected: false,
-  agents: new Map(),
-  onError: undefined,
-
-  connect: (url: string) => {
-    return new Promise((resolve, reject) => {
-      try {
-        const socket = new WebSocket(url);
-
-        socket.onopen = () => {
-          set({ connected: true });
-          const store = get();
-          if (store && store.onConnect) {
-            store.onConnect(url);
-          }
-          resolve();
-        };
-
-        socket.onmessage = (event) => {
-          try {
-            const message: AgentMessage = JSON.parse(event.data);
-            const store = get();
-            
-            if (message.type === "error" && message.data.error && store && store.onError) {
-              store.onError(message.data.error);
-              return;
-            }
-
-            if (store && store.onMessage) {
-              store.onMessage(message);
-            }
-          } catch (error) {
-            const store = get();
-            if (store && store.onError) {
-              store.onError("Failed to parse message");
-            }
-          }
-        };
-
-        socket.onclose = () => {
-          set({ connected: false });
-          const store = get();
-          if (store && store.onDisconnect) {
-            store.onDisconnect(url);
-          }
-        };
-
-        socket.onerror = () => {
-          const store = get();
-          if (store && store.onError) {
-            store.onError("WebSocket connection error");
-          }
-        };
-
-        set({ socket });
-      } catch (error) {
-        const store = get();
-        if (store && store.onError) {
-          store.onError(`Failed to connect: ${error}`);
-        }
-        reject(error);
-      }
-    });
-  },
-
-  disconnect: () => {
-    const { socket } = get();
-    if (socket) {
-      socket.close();
-      set({ socket: null, connected: false });
-    }
-  },
-
-  sendMessage: (message: AgentMessage) => {
-    const { socket, connected } = get();
-    if (socket && connected) {
-      socket.send(JSON.stringify(message));
-    } else if (get().onError) {
-      get().onError("Cannot send message: not connected");
-    }
-  },
-
-  updateAgentState: (agentId: string, state: Partial<AgentState>) => {
-    set((store) => {
-      const agents = new Map(store.agents);
-      const currentState = agents.get(agentId) || {
-        position: [0, 0, 0],
-        rotation: [0, 0, 0],
-        action: "",
-        reward: 0,
-        done: false,
-      };
-      agents.set(agentId, { ...currentState, ...state });
-      return { agents };
-    });
-  },
-}));
 
 export class AgentConnection {
   private socket: WebSocket | null = null
-  private get = useConnectionStore.getState
+  private store: Store
+  private config: EnvironmentConfig
+  private reconnectAttempts = 0
+  private reconnectTimeout: NodeJS.Timeout | null = null
+
+  constructor(store: Store, config: EnvironmentConfig) {
+    this.store = store
+    this.config = config
+  }
 
   connect(url: string): Promise<void> {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       try {
         this.socket = new WebSocket(url)
 
         this.socket.onopen = () => {
-          const store = this.get()
-          if (store && store.onConnect) {
-            store.onConnect(url)
-          }
+          this.reconnectAttempts = 0
+          this.store.connect(url, this.config).catch(() => {
+            this.store.setError('Failed to connect to store')
+          })
           resolve()
         }
 
         this.socket.onmessage = (event) => {
           try {
-            const message = JSON.parse(event.data)
-            const store = this.get()
-            
-            if (message.type === 'error' && store && store.onError) {
-              store.onError(message.data.error)
-              return
-            }
-
-            if (store && store.onMessage) {
-              store.onMessage(message)
+            const message = JSON.parse(event.data) as WebSocketMessage
+            if ('type' in message && message.type === 'state') {
+              this.store.updateAgentState(message.agentId, message.data)
             }
           } catch (error) {
-            const store = this.get()
-            if (store && store.onError) {
-              store.onError('Failed to parse message')
-            }
+            this.store.setError('Failed to parse message')
           }
         }
 
         this.socket.onerror = () => {
-          const store = this.get()
-          if (store && store.onError) {
-            store.onError('WebSocket connection error')
-          }
+          this.store.setError('WebSocket connection error')
         }
 
         this.socket.onclose = () => {
-          const store = this.get()
-          if (store && store.onDisconnect) {
-            store.onDisconnect(url)
-          }
+          this.handleDisconnect()
+          this.store.disconnect()
         }
       } catch (error) {
-        const store = this.get()
-        if (store && store.onError) {
-          store.onError(`Failed to connect: ${error}`)
-        }
+        this.store.setError('Failed to connect')
         reject(error)
       }
     })
   }
 
-  send(message: any): void {
+  sendMessage(message: AgentMessage): void {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      const store = this.get()
-      if (store && store.onError) {
-        store.onError('Cannot send message: not connected')
-      }
+      this.store.setError('Cannot send message: not connected')
       return
     }
 
     try {
       this.socket.send(JSON.stringify(message))
     } catch (error) {
-      const store = this.get()
-      if (store && store.onError) {
-        store.onError('Failed to send message')
-      }
+      this.store.setError('Failed to send message')
     }
   }
 
@@ -215,5 +117,26 @@ export class AgentConnection {
       this.socket.close()
       this.socket = null
     }
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout)
+      this.reconnectTimeout = null
+    }
+  }
+
+  private handleDisconnect(): void {
+    if (this.reconnectAttempts < this.config.reconnectAttempts) {
+      this.reconnectTimeout = setTimeout(() => {
+        this.reconnectAttempts++
+        if (this.socket?.url) {
+          this.connect(this.socket.url).catch(() => {
+            this.store.setError('Failed to reconnect')
+          })
+        }
+      }, this.config.reconnectInterval)
+    }
+  }
+
+  isConnected(): boolean {
+    return this.socket?.readyState === WebSocket.OPEN
   }
 }
