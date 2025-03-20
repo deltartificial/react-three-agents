@@ -19,7 +19,7 @@ export const agentStateSchema = z.object({
 }).passthrough()
 
 export const messageSchema = z.object({
-  type: z.enum(['state', 'action', 'reset', 'info', 'error']),
+  type: z.enum(['state', 'action', 'reset', 'info', 'error', 'connection']),
   agentId: z.string(),
   data: z.record(z.any())
 })

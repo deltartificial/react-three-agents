@@ -1,13 +1,68 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Html } from '@react-three/drei'
-import { Group } from 'three'
+import { Group, Vector3Tuple } from 'three'
 import { useConnectionStore } from '../../core/connection/connection.store'
-import type { AgentProps } from '../../types/agent.types'
+import type { AgentProps, AgentState } from '../../types/agent.types'
 import { DEFAULT_AGENT_CONFIG, DEFAULT_POSITION, DEFAULT_ROTATION } from '../../constants/defaults'
 import { lerpVector3 } from '../../utils/math'
 
-export function Agent({
+export interface AgentProps {
+  id: string
+  state: AgentState
+  smoothing?: number
+  onClick?: (id: string, state: AgentState) => void
+}
+
+export const Agent = ({ id, state, smoothing = 0.1, onClick }: AgentProps) => {
+  const ref = useRef<Group>(null)
+
+  useEffect(() => {
+    if (!ref.current) return
+    ref.current.position.set(...(state.position as Vector3Tuple))
+    ref.current.rotation.set(...(state.rotation as Vector3Tuple))
+  }, [state.position, state.rotation])
+
+  useFrame(() => {
+    if (!ref.current) return
+
+    const targetPosition = state.position as Vector3Tuple
+    const targetRotation = state.rotation as Vector3Tuple
+    const currentPosition = [
+      ref.current.position.x,
+      ref.current.position.y,
+      ref.current.position.z
+    ] as Vector3Tuple
+    const currentRotation = [
+      ref.current.rotation.x,
+      ref.current.rotation.y,
+      ref.current.rotation.z
+    ] as Vector3Tuple
+
+    const newPosition = lerpVector3(currentPosition, targetPosition, smoothing)
+    const newRotation = lerpVector3(currentRotation, targetRotation, smoothing)
+
+    ref.current.position.set(...newPosition)
+    ref.current.rotation.set(...newRotation)
+  })
+
+  const handleClick = () => {
+    if (onClick) {
+      onClick(id, state)
+    }
+  }
+
+  return (
+    <group ref={ref} onClick={handleClick}>
+      <mesh>
+        <boxGeometry args={[1, 1, 1]} />
+        <meshStandardMaterial color="blue" />
+      </mesh>
+    </group>
+  )
+}
+
+export function AgentComponent({
   id,
   model,
   onStateChange,
@@ -54,17 +109,23 @@ export function Agent({
 
     const agentState = agents.get(id)
     if (agentState) {
-      const targetPosition = agentState.position
-      const targetRotation = agentState.rotation
+      const targetPosition = agentState.position as Vector3Tuple
+      const targetRotation = agentState.rotation as Vector3Tuple
 
       const currentPosition = [
         groupRef.current.position.x,
         groupRef.current.position.y,
         groupRef.current.position.z
-      ] as const
+      ] as Vector3Tuple
 
       const newPosition = lerpVector3(currentPosition, targetPosition, smoothing)
       groupRef.current.position.set(...newPosition)
+
+      const currentRotation = [
+        groupRef.current.rotation.x,
+        groupRef.current.rotation.y,
+        groupRef.current.rotation.z
+      ] as Vector3Tuple
 
       groupRef.current.rotation.x += (targetRotation[0] - groupRef.current.rotation.x) * smoothing
       groupRef.current.rotation.y += (targetRotation[1] - groupRef.current.rotation.y) * smoothing
@@ -81,7 +142,7 @@ export function Agent({
       data: { action: 'click' }
     })
     
-    onClick?.(id, agents.get(id) || {})
+    onClick?.(id, agents.get(id) || {} as AgentState)
   }
 
   const defaultModel = useMemo(() => (

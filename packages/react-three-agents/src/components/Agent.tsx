@@ -43,7 +43,6 @@ export function Agent({
   const sendMessage = useAgentConnection((state) => state.sendMessage);
   const [label, setLabel] = useState<string>("");
 
-  // Set initial position and rotation
   useEffect(() => {
     if (groupRef.current) {
       groupRef.current.position.set(...initialPosition);
@@ -51,11 +50,9 @@ export function Agent({
     }
   }, [initialPosition, initialRotation]);
 
-  // Compute target values from agent state
   useEffect(() => {
     const agentState = agents.get(id);
     if (agentState) {
-      // Update target position and rotation for smooth transitions
       targetPosition.current = new Vector3(...agentState.position);
       targetRotation.current = [...agentState.rotation];
 
@@ -63,7 +60,6 @@ export function Agent({
         onStateChange(agentState);
       }
 
-      // Update label if needed
       if (showLabel) {
         if (typeof labelContent === "function") {
           setLabel(labelContent(agentState));
@@ -76,14 +72,11 @@ export function Agent({
     }
   }, [agents, id, onStateChange, showLabel, labelContent]);
 
-  // Apply smooth transitions in animation frame
   useFrame(() => {
     if (!groupRef.current) return;
 
-    // Smoothly interpolate position
     groupRef.current.position.lerp(targetPosition.current, smoothing);
 
-    // Smoothly interpolate rotation
     groupRef.current.rotation.x +=
       (targetRotation.current[0] - groupRef.current.rotation.x) * smoothing;
     groupRef.current.rotation.y +=
@@ -93,23 +86,19 @@ export function Agent({
   });
 
   const handleClick = (event: any) => {
-    // Stop event propagation
     event.stopPropagation();
     
-    // Send click action to server
     sendMessage({
       type: "action",
       agentId: id,
       data: { action: "click" },
     });
     
-    // Call custom click handler if provided
     if (onClick) {
       onClick(id, agents.get(id) || {});
     }
   };
 
-  // Memoize the default model to prevent unnecessary re-renders
   const defaultModel = useMemo(() => (
     <>
       <boxGeometry args={[size, size, size]} />
@@ -117,7 +106,6 @@ export function Agent({
     </>
   ), [size, color]);
 
-  // Default label style with user overrides
   const mergedLabelStyle = useMemo(() => ({
     backgroundColor: "rgba(0,0,0,0.5)",
     color: "white",

@@ -1,4 +1,4 @@
-import type { AgentMessage, WebSocketMessage, ConnectionMessage } from '../../types/message.types'
+import type { AgentMessage, WebSocketMessage, ConnectionMessage, ConnectionStatus } from '../../types/message.types'
 import type { EnvironmentConfig } from '../../types/environment.types'
 
 export class ConnectionService {
@@ -11,7 +11,7 @@ export class ConnectionService {
     this.config = config
   }
 
-  connect(url: string): Promise<ConnectionMessage> {
+  connect(url: string): Promise<ConnectionStatus> {
     return new Promise((resolve, reject) => {
       try {
         this.socket = new WebSocket(url)
@@ -23,13 +23,26 @@ export class ConnectionService {
 
         this.socket.onclose = () => {
           this.handleDisconnect()
+          resolve({ type: 'connection', id: url, status: 'disconnected' })
         }
 
-        this.socket.onerror = (error) => {
-          reject({ type: 'connection', id: url, status: 'disconnected', error: error.toString() })
+        this.socket.onerror = (event: Event) => {
+          const errorEvent = event as ErrorEvent
+          reject({ 
+            type: 'connection', 
+            id: url, 
+            status: 'disconnected', 
+            error: errorEvent.message || 'Unknown error occurred' 
+          })
         }
       } catch (error) {
-        reject({ type: 'connection', id: url, status: 'disconnected', error: error.toString() })
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+        reject({ 
+          type: 'connection', 
+          id: url, 
+          status: 'disconnected', 
+          error: errorMessage 
+        })
       }
     })
   }
@@ -45,9 +58,16 @@ export class ConnectionService {
     }
   }
 
-  send(message: AgentMessage): void {
-    if (this.socket?.readyState === WebSocket.OPEN) {
+  send(message: unknown): void {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      throw new Error('WebSocket is not connected')
+    }
+
+    try {
       this.socket.send(JSON.stringify(message))
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to send message'
+      throw new Error(errorMessage)
     }
   }
 

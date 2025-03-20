@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { useConnectionStore } from './connection/connection.store'
 
 export interface AgentState {
   position: [number, number, number];
@@ -36,49 +37,64 @@ export const useAgentConnection = create<ConnectionStore>((set, get) => ({
   onError: undefined,
 
   connect: (url: string) => {
-    try {
-      const socket = new WebSocket(url);
+    return new Promise((resolve, reject) => {
+      try {
+        const socket = new WebSocket(url);
 
-      socket.onopen = () => {
-        set({ connected: true });
-      };
-
-      socket.onmessage = (event) => {
-        try {
-          const message: AgentMessage = JSON.parse(event.data);
-          
-          if (message.type === "error" && message.data.error && get().onError) {
-            get().onError(message.data.error);
-          } else if (message.type === "info" && message.data.agentDisconnected) {
-            const agents = new Map(get().agents);
-            agents.delete(message.data.agentDisconnected);
-            set({ agents });
-          } else {
-            get().updateAgentState(message.agentId, message.data);
+        socket.onopen = () => {
+          set({ connected: true });
+          const store = get();
+          if (store && store.onConnect) {
+            store.onConnect(url);
           }
-        } catch (error) {
-          console.error("Failed to parse message:", error);
+          resolve();
+        };
+
+        socket.onmessage = (event) => {
+          try {
+            const message: AgentMessage = JSON.parse(event.data);
+            const store = get();
+            
+            if (message.type === "error" && message.data.error && store && store.onError) {
+              store.onError(message.data.error);
+              return;
+            }
+
+            if (store && store.onMessage) {
+              store.onMessage(message);
+            }
+          } catch (error) {
+            const store = get();
+            if (store && store.onError) {
+              store.onError("Failed to parse message");
+            }
+          }
+        };
+
+        socket.onclose = () => {
+          set({ connected: false });
+          const store = get();
+          if (store && store.onDisconnect) {
+            store.onDisconnect(url);
+          }
+        };
+
+        socket.onerror = () => {
+          const store = get();
+          if (store && store.onError) {
+            store.onError("WebSocket connection error");
+          }
+        };
+
+        set({ socket });
+      } catch (error) {
+        const store = get();
+        if (store && store.onError) {
+          store.onError(`Failed to connect: ${error}`);
         }
-      };
-
-      socket.onclose = () => {
-        set({ connected: false });
-      };
-
-      socket.onerror = (event) => {
-        console.error("WebSocket error:", event);
-        if (get().onError) {
-          get().onError("WebSocket connection error");
-        }
-      };
-
-      set({ socket });
-    } catch (error) {
-      console.error("Failed to create WebSocket:", error);
-      if (get().onError) {
-        get().onError(`Failed to connect: ${error}`);
+        reject(error);
       }
-    }
+    });
   },
 
   disconnect: () => {
@@ -113,3 +129,91 @@ export const useAgentConnection = create<ConnectionStore>((set, get) => ({
     });
   },
 }));
+
+export class AgentConnection {
+  private socket: WebSocket | null = null
+  private get = useConnectionStore.getState
+
+  connect(url: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      try {
+        this.socket = new WebSocket(url)
+
+        this.socket.onopen = () => {
+          const store = this.get()
+          if (store && store.onConnect) {
+            store.onConnect(url)
+          }
+          resolve()
+        }
+
+        this.socket.onmessage = (event) => {
+          try {
+            const message = JSON.parse(event.data)
+            const store = this.get()
+            
+            if (message.type === 'error' && store && store.onError) {
+              store.onError(message.data.error)
+              return
+            }
+
+            if (store && store.onMessage) {
+              store.onMessage(message)
+            }
+          } catch (error) {
+            const store = this.get()
+            if (store && store.onError) {
+              store.onError('Failed to parse message')
+            }
+          }
+        }
+
+        this.socket.onerror = () => {
+          const store = this.get()
+          if (store && store.onError) {
+            store.onError('WebSocket connection error')
+          }
+        }
+
+        this.socket.onclose = () => {
+          const store = this.get()
+          if (store && store.onDisconnect) {
+            store.onDisconnect(url)
+          }
+        }
+      } catch (error) {
+        const store = this.get()
+        if (store && store.onError) {
+          store.onError(`Failed to connect: ${error}`)
+        }
+        reject(error)
+      }
+    })
+  }
+
+  send(message: any): void {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      const store = this.get()
+      if (store && store.onError) {
+        store.onError('Cannot send message: not connected')
+      }
+      return
+    }
+
+    try {
+      this.socket.send(JSON.stringify(message))
+    } catch (error) {
+      const store = this.get()
+      if (store && store.onError) {
+        store.onError('Failed to send message')
+      }
+    }
+  }
+
+  disconnect(): void {
+    if (this.socket) {
+      this.socket.close()
+      this.socket = null
+    }
+  }
+}
