@@ -44,7 +44,6 @@ class R3FEnv(gym.Env):
         self.last_message_time = 0
         self.timeout = 5.0  # seconds
         
-        # Navigation task parameters
         self.target_position = np.array(target_position if target_position else [10.0, 0.0, 10.0], dtype=np.float32)
         self.start_position = np.array(start_position if start_position else [0.0, 0.0, 0.0], dtype=np.float32)
         self.max_episode_steps = max_episode_steps
@@ -52,12 +51,10 @@ class R3FEnv(gym.Env):
         self.target_radius = 1.0  # Distance to consider target reached
         self.previous_distance = None  # To calculate reward based on progress
         
-        # Configure action space
         if action_space_config and action_space_config.get('type') == 'discrete':
             self.action_space = spaces.Discrete(action_space_config.get('n', 4))
             self.action_type = 'discrete'
         else:
-            # Default to continuous actions (x, y, z movement)
             self.action_space = spaces.Box(
                 low=-1.0,
                 high=1.0,
@@ -66,11 +63,9 @@ class R3FEnv(gym.Env):
             )
             self.action_type = 'continuous'
         
-        # Configure observation space
         if observation_space_config:
             self.observation_space = self._create_custom_observation_space(observation_space_config)
         else:
-            # Default observation space: position, rotation, target position, distance to target
             self.observation_space = spaces.Dict({
                 'position': spaces.Box(
                     low=-np.inf,
@@ -171,20 +166,16 @@ class R3FEnv(gym.Env):
             await self._connect()
         
         try:
-            # Set a timeout for receiving messages
             message = await asyncio.wait_for(self.websocket.recv(), timeout=self.timeout)
             data = json.loads(message)
             
-            # Only process messages for this agent
             if data.get('agentId') == self.agent_id and data.get('type') == 'state':
                 return data
             else:
-                # If message is not for this agent, try again
                 return await self._receive_state()
                 
         except asyncio.TimeoutError:
             print(f"Timeout waiting for response from server after {self.timeout} seconds")
-            # Return the last known state
             return {
                 'type': 'state',
                 'agentId': self.agent_id,
@@ -211,32 +202,23 @@ class R3FEnv(gym.Env):
         Returns:
             Tuple of (reward, done)
         """
-        # Calculate distance to target
         distance = np.linalg.norm(position - self.target_position)
         
-        # Check if target reached
         if distance < self.target_radius:
             return 10.0, True  # High reward for reaching target
         
-        # Calculate reward based on progress towards target
         if self.previous_distance is not None:
-            # Reward for moving closer to target, penalty for moving away
             progress_reward = self.previous_distance - distance
-            # Scale the reward
             progress_reward = progress_reward * 0.5
         else:
             progress_reward = 0.0
         
-        # Small penalty for each step to encourage efficiency
         step_penalty = -0.01
         
-        # Update previous distance
         self.previous_distance = distance
         
-        # Check if episode should end (max steps reached)
         done = self.current_step >= self.max_episode_steps
         
-        # Return combined reward
         return progress_reward + step_penalty, done
     
     def reset(self, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[Dict[str, np.ndarray], Dict]:
@@ -246,11 +228,9 @@ class R3FEnv(gym.Env):
         if self.loop is None:
             self.loop = asyncio.get_event_loop()
         
-        # Reset step counter
         self.current_step = 0
         self.previous_distance = None
         
-        # Send reset message with start position
         self.loop.run_until_complete(self._send_message({
             'type': 'reset',
             'agentId': self.agent_id,
@@ -260,7 +240,6 @@ class R3FEnv(gym.Env):
             }
         }))
         
-        # Receive initial state
         state = self.loop.run_until_complete(self._receive_state())
         if 'data' in state:
             self._agent_state.update(state.get('data', {}))
@@ -279,10 +258,7 @@ class R3FEnv(gym.Env):
         """
         self.current_step += 1
         
-        # Convert discrete action to continuous if needed
         if self.action_type == 'discrete' and isinstance(action, (int, np.integer)):
-            # Map discrete actions to movements
-            # 0: forward, 1: backward, 2: left, 3: right
             continuous_action = np.zeros(3, dtype=np.float32)
             if action == 0:  # forward
                 continuous_action[2] = -1.0
@@ -294,26 +270,21 @@ class R3FEnv(gym.Env):
                 continuous_action[0] = 1.0
             action_data = {'position': continuous_action.tolist()}
         else:
-            # Use continuous action directly
             action_data = {'position': action.tolist()}
         
-        # Send action
         self.loop.run_until_complete(self._send_message({
             'type': 'action',
             'agentId': self.agent_id,
             'data': action_data
         }))
         
-        # Receive new state
         state = self.loop.run_until_complete(self._receive_state())
         if 'data' in state:
             self._agent_state.update(state.get('data', {}))
         
-        # Calculate reward and check if done
         position = np.array(self._agent_state.get('position', [0, 0, 0]), dtype=np.float32)
         reward, done = self._calculate_reward(position)
         
-        # Update agent state with reward and done
         self._agent_state['reward'] = reward
         self._agent_state['done'] = done
         
@@ -330,7 +301,6 @@ class R3FEnv(gym.Env):
         position = np.array(self._agent_state.get('position', [0, 0, 0]), dtype=np.float32)
         rotation = np.array(self._agent_state.get('rotation', [0, 0, 0]), dtype=np.float32)
         
-        # Calculate distance to target
         distance = np.linalg.norm(position - self.target_position)
         
         if isinstance(self.observation_space, spaces.Dict):
@@ -351,12 +321,10 @@ class R3FEnv(gym.Env):
                     else:
                         obs[key] = np.array([value], dtype=np.float32)
                 else:
-                    # Default to zeros if the key is not in agent state
                     shape = self.observation_space.spaces[key].shape
                     obs[key] = np.zeros(shape, dtype=np.float32)
             return obs
         else:
-            # For Box observation space, default to position
             return np.array(self._agent_state.get('position', [0, 0, 0]), dtype=np.float32)
     
     def close(self):

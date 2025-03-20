@@ -136,3 +136,16 @@ dist
 .cursor 
 .cursorrules
 .cursor/rules
+
+.venv
+/venv 
+/venv/
+/venv/*
+/models
+/models/*
+/models/
+.models
+*.zip
+models/best_model.zip
+models/rl_model_10000_steps.zip
+models/rl_model_5000_steps.zip
