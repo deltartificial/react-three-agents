@@ -41,7 +41,6 @@ export class AgentWebSocketServer {
         try {
           const data = JSON.parse(message.toString()) as AgentMessage;
 
-          // Register agent ID with connection
           const connection = Array.from(this.connections.entries()).find(
             ([_, conn]) => conn.ws === ws
           );
@@ -54,7 +53,6 @@ export class AgentWebSocketServer {
             }
           }
 
-          // Handle different message types
           switch (data.type) {
             case "action":
               if (data.data && this.onAgentAction) {
@@ -81,7 +79,6 @@ export class AgentWebSocketServer {
               }
               break;
             case "reset":
-              // Reset agent state
               this.agents.set(data.agentId, {
                 position: [0, 0, 0],
                 rotation: [0, 0, 0],
@@ -108,7 +105,6 @@ export class AgentWebSocketServer {
           this.connections.delete(id);
           console.log(`Client disconnected: ${id}`);
 
-          // Clean up agent if this was an agent connection
           if (conn.agentId) {
             this.agents.delete(conn.agentId);
           }
@@ -139,7 +135,6 @@ export class AgentWebSocketServer {
 
   public stop() {
     if (this.isRunning && this.server) {
-      // Close all connections
       this.connections.forEach(({ ws }) => {
         try {
           ws.close();
@@ -148,7 +143,6 @@ export class AgentWebSocketServer {
         }
       });
 
-      // Close the server
       this.server.close((err?: Error) => {
         if (err) {
           console.error("Error closing WebSocket server:", err);
@@ -157,12 +151,10 @@ export class AgentWebSocketServer {
         }
       });
 
-      // Clear collections
       this.connections.clear();
       this.agents.clear();
       this.server = null;
 
-      // Mark as stopped
       this.isRunning = false;
       console.log("WebSocket server stopped");
     }
@@ -204,17 +196,14 @@ export class AgentWebSocketServer {
     const newState = { ...currentState, ...state };
     this.agents.set(agentId, newState);
 
-    // Create the state message
     const stateMessage: AgentMessage = {
       type: "state",
       agentId,
       data: newState,
     };
 
-    // Broadcast to all clients
     this.broadcast(stateMessage);
 
-    // Also send directly to the specific agent to ensure it receives the update
     const sent = this.sendToAgent(agentId, stateMessage);
     if (!sent) {
       console.log(

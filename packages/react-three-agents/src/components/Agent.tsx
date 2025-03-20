@@ -58,7 +58,6 @@ export function Agent({
       const targetPosition = new Vector3(...agentState.position);
       groupRef.current.position.lerp(targetPosition, smoothing);
 
-      // Apply rotation with smoothing
       const targetRotationX = agentState.rotation[0];
       const targetRotationY = agentState.rotation[1];
       const targetRotationZ = agentState.rotation[2];

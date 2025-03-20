@@ -18,7 +18,6 @@ interface EnvironmentProps {
   canvasProps?: Record<string, any>;
 }
 
-// Singleton server instance
 let serverInstance: AgentWebSocketServer | null = null;
 
 export function Environment({
@@ -37,12 +36,9 @@ export function Environment({
   const connected = useAgentConnection((state) => state.connected);
   const [serverStarted, setServerStarted] = useState(false);
 
-  // Start server if needed
   useEffect(() => {
-    // Check if we're in a browser environment
     const isBrowser = typeof window !== "undefined";
 
-    // Only start server if we're not in a browser and startServer is true
     if (startServer && !serverInstance && !isBrowser) {
       serverInstance = new AgentWebSocketServer(serverPort);
 
@@ -60,18 +56,14 @@ export function Environment({
         }
       };
     } else if (isBrowser && startServer) {
-      // In browser, just log that we can't start the server here
       console.log(
         "WebSocket server can't be started in the browser. Use the standalone server instead."
       );
-      // We'll still connect to the server
       setServerStarted(true);
     }
   }, [startServer, serverPort, onAgentAction]);
 
-  // Connect to server
   useEffect(() => {
-    // Only connect if we're not starting our own server or if our server has started
     if (!startServer || serverStarted) {
       connect(serverUrl);
     }
@@ -79,7 +71,6 @@ export function Environment({
     return () => disconnect();
   }, [serverUrl, connect, disconnect, startServer, serverStarted]);
 
-  // Handle connection status
   useEffect(() => {
     if (connected) {
       onConnect?.();
@@ -88,12 +79,10 @@ export function Environment({
     }
   }, [connected, onConnect, onDisconnect]);
 
-  // If noCanvas is true, just return the children
   if (noCanvas) {
     return <>{children}</>;
   }
 
-  // Otherwise, wrap in Canvas with default or custom props
   return (
     <Canvas {...canvasProps}>
       <ambientLight intensity={0.5} />
@@ -104,7 +93,6 @@ export function Environment({
   );
 }
 
-// Export the server instance getter for advanced usage
 export function getServerInstance(): AgentWebSocketServer | null {
   return serverInstance;
 }
