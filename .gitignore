@@ -149,3 +149,6 @@ dist
 models/best_model.zip
 models/rl_model_10000_steps.zip
 models/rl_model_5000_steps.zip
+todo.md
+typescript.md
+typescriot.md

@@ -6,21 +6,30 @@ from gymnasium import spaces
 from typing import Dict, Any, Optional, Tuple, List, Union
 import websockets
 import time
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger("r3f_agents")
 
 class R3FEnv(gym.Env):
     """
     Reinforcement Learning environment that connects to a React Three Fiber scene via WebSockets.
     Implements the Gymnasium interface for compatibility with RL libraries.
+    
+    This environment allows agents to interact with 3D scenes rendered using React Three Fiber.
+    It handles communication with the WebSocket server, state management, and reward calculation.
     """
     metadata = {'render_modes': ['human']}
     
     def __init__(self, 
                  websocket_url: str = "ws://localhost:8765",
                  agent_id: str = "main",
-                 observation_space_config: Optional[Dict] = None,
-                 action_space_config: Optional[Dict] = None,
-                 target_position: Optional[List[float]] = None,
-                 start_position: Optional[List[float]] = None,
+                 observation_space: Optional[spaces.Space] = None,
+                 action_space: Optional[spaces.Space] = None,
                  max_episode_steps: int = 1000):
         """
         Initialize the R3F environment.
@@ -28,225 +37,163 @@ class R3FEnv(gym.Env):
         Args:
             websocket_url: URL of the WebSocket server
             agent_id: Unique identifier for this agent
-            observation_space_config: Custom observation space configuration
-            action_space_config: Custom action space configuration
-            target_position: Target position [x, y, z] for navigation task
-            start_position: Start position [x, y, z] for the agent
+            observation_space: Custom observation space configuration
+            action_space: Custom action space configuration
             max_episode_steps: Maximum number of steps per episode
         """
         super().__init__()
+        
+        # Set up logger
+        self.logger = logger
         
         self.websocket_url = websocket_url
         self.agent_id = agent_id
         self.websocket = None
         self.loop = None
         self.connected = False
-        self.last_message_time = 0
-        self.timeout = 5.0  # seconds
-        
-        self.target_position = np.array(target_position if target_position else [10.0, 0.0, 10.0], dtype=np.float32)
-        self.start_position = np.array(start_position if start_position else [0.0, 0.0, 0.0], dtype=np.float32)
+        self.timeout = 5.0
         self.max_episode_steps = max_episode_steps
         self.current_step = 0
-        self.target_radius = 1.0  # Distance to consider target reached
-        self.previous_distance = None  # To calculate reward based on progress
         
-        if action_space_config and action_space_config.get('type') == 'discrete':
-            self.action_space = spaces.Discrete(action_space_config.get('n', 4))
-            self.action_type = 'discrete'
-        else:
-            self.action_space = spaces.Box(
-                low=-1.0,
-                high=1.0,
-                shape=(3,),  # [x, y, z] movement
+        self.action_space = action_space or spaces.Box(
+            low=-1.0,
+            high=1.0,
+            shape=(3,),
+            dtype=np.float32
+        )
+        
+        self.observation_space = observation_space or spaces.Dict({
+            'position': spaces.Box(
+                low=-np.inf,
+                high=np.inf,
+                shape=(3,),
+                dtype=np.float32
+            ),
+            'rotation': spaces.Box(
+                low=-np.pi,
+                high=np.pi,
+                shape=(3,),
                 dtype=np.float32
             )
-            self.action_type = 'continuous'
+        })
         
-        if observation_space_config:
-            self.observation_space = self._create_custom_observation_space(observation_space_config)
-        else:
-            self.observation_space = spaces.Dict({
-                'position': spaces.Box(
-                    low=-np.inf,
-                    high=np.inf,
-                    shape=(3,),
-                    dtype=np.float32
-                ),
-                'rotation': spaces.Box(
-                    low=-np.pi,
-                    high=np.pi,
-                    shape=(3,),
-                    dtype=np.float32
-                ),
-                'target_position': spaces.Box(
-                    low=-np.inf,
-                    high=np.inf,
-                    shape=(3,),
-                    dtype=np.float32
-                ),
-                'distance_to_target': spaces.Box(
-                    low=0,
-                    high=np.inf,
-                    shape=(1,),
-                    dtype=np.float32
-                )
-            })
-        
-        # Initialize agent state
-        self._agent_state = {
+        self._state = {
             'position': np.zeros(3, dtype=np.float32),
             'rotation': np.zeros(3, dtype=np.float32),
             'reward': 0.0,
-            'done': False,
-            'action': ''
+            'done': False
         }
+        
+        self.logger.info(f"R3F Environment initialized: agent_id={agent_id}, url={websocket_url}")
     
-    def _create_custom_observation_space(self, config: Dict) -> spaces.Space:
-        """Create a custom observation space based on configuration."""
-        if config.get('type') == 'dict':
-            space_dict = {}
-            for key, space_config in config.get('spaces', {}).items():
-                if space_config['type'] == 'box':
-                    space_dict[key] = spaces.Box(
-                        low=np.array(space_config.get('low', -np.inf), dtype=np.float32),
-                        high=np.array(space_config.get('high', np.inf), dtype=np.float32),
-                        shape=tuple(space_config.get('shape', (1,))),
-                        dtype=np.float32
-                    )
-            return spaces.Dict(space_dict)
-        elif config.get('type') == 'box':
-            return spaces.Box(
-                low=np.array(config.get('low', -np.inf), dtype=np.float32),
-                high=np.array(config.get('high', np.inf), dtype=np.float32),
-                shape=tuple(config.get('shape', (1,))),
-                dtype=np.float32
-            )
-        else:
-            # Default to position and rotation
-            return spaces.Dict({
-                'position': spaces.Box(
-                    low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32
-                ),
-                'rotation': spaces.Box(
-                    low=-np.pi, high=np.pi, shape=(3,), dtype=np.float32
-                )
-            })
-    
-    async def _connect(self):
-        """Establish WebSocket connection."""
+    async def _connect(self) -> None:
+        """
+        Establish WebSocket connection.
+        
+        Raises:
+            ConnectionError: If connection to the WebSocket server fails
+        """
         if self.websocket is None or not self.connected:
             try:
+                self.logger.debug(f"Attempting to connect to {self.websocket_url}")
                 self.websocket = await websockets.connect(self.websocket_url)
                 self.connected = True
-                print(f"Connected to R3F environment at {self.websocket_url}")
+                self.logger.info(f"Connected to R3F environment at {self.websocket_url}")
             except Exception as e:
                 self.connected = False
-                print(f"Failed to connect to R3F environment: {e}")
+                self.logger.error(f"Failed to connect to R3F environment: {e}")
                 raise ConnectionError(f"Could not connect to WebSocket server: {e}")
     
-    async def _disconnect(self):
+    async def _disconnect(self) -> None:
         """Close WebSocket connection."""
         if self.websocket:
             await self.websocket.close()
             self.websocket = None
             self.connected = False
-            print("Disconnected from R3F environment")
+            self.logger.info("Disconnected from R3F environment")
     
-    async def _send_message(self, message: Dict[str, Any]):
-        """Send a message to the WebSocket server."""
+    async def _send_message(self, message: Dict[str, Any]) -> None:
+        """
+        Send a message to the WebSocket server.
+        
+        Args:
+            message: The message to send to the server
+        """
         await self._connect()
         message_json = json.dumps(message)
+        self.logger.debug(f"Sending message: {message_json}")
         await self.websocket.send(message_json)
-        self.last_message_time = time.time()
     
     async def _receive_state(self) -> Dict[str, Any]:
-        """Receive state update from the WebSocket server."""
+        """
+        Receive state update from the WebSocket server.
+        
+        Returns:
+            The message received from the server
+            
+        Raises:
+            asyncio.TimeoutError: If server doesn't respond within the timeout period
+            ConnectionError: If connection issues occur
+        """
         if not self.websocket or not self.connected:
             await self._connect()
         
         try:
+            self.logger.debug("Waiting for message from server")
             message = await asyncio.wait_for(self.websocket.recv(), timeout=self.timeout)
             data = json.loads(message)
             
             if data.get('agentId') == self.agent_id and data.get('type') == 'state':
+                self.logger.debug(f"Received state update: {data}")
                 return data
             else:
+                self.logger.debug(f"Received non-state message, waiting for state update: {data}")
                 return await self._receive_state()
                 
         except asyncio.TimeoutError:
-            print(f"Timeout waiting for response from server after {self.timeout} seconds")
+            self.logger.warning(f"Timeout waiting for response from server after {self.timeout} seconds")
             return {
                 'type': 'state',
                 'agentId': self.agent_id,
-                'data': self._agent_state
+                'data': self._state
             }
         except Exception as e:
-            print(f"Error receiving state: {e}")
+            self.logger.error(f"Error receiving state: {e}")
             raise
     
-    def set_target_position(self, target_position: List[float]):
-        """Set the target position for navigation task."""
-        self.target_position = np.array(target_position, dtype=np.float32)
-        print(f"Target position set to: {self.target_position}")
-    
-    def set_start_position(self, start_position: List[float]):
-        """Set the start position for the agent."""
-        self.start_position = np.array(start_position, dtype=np.float32)
-        print(f"Start position set to: {self.start_position}")
-    
-    def _calculate_reward(self, position: np.ndarray) -> Tuple[float, bool]:
+    def reset(self, seed: Optional[int] = None, options: Optional[Dict[str, Any]] = None) -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
         """
-        Calculate reward based on distance to target and progress.
+        Reset the environment to an initial state.
         
+        Args:
+            seed: Random seed for reproducibility
+            options: Additional options for resetting (unused currently)
+            
         Returns:
-            Tuple of (reward, done)
+            Initial observation and info dictionary
         """
-        distance = np.linalg.norm(position - self.target_position)
-        
-        if distance < self.target_radius:
-            return 10.0, True  # High reward for reaching target
-        
-        if self.previous_distance is not None:
-            progress_reward = self.previous_distance - distance
-            progress_reward = progress_reward * 0.5
-        else:
-            progress_reward = 0.0
-        
-        step_penalty = -0.01
-        
-        self.previous_distance = distance
-        
-        done = self.current_step >= self.max_episode_steps
-        
-        return progress_reward + step_penalty, done
-    
-    def reset(self, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[Dict[str, np.ndarray], Dict]:
-        """Reset the environment to an initial state."""
         super().reset(seed=seed)
         
         if self.loop is None:
             self.loop = asyncio.get_event_loop()
         
         self.current_step = 0
-        self.previous_distance = None
+        
+        self.logger.info(f"Resetting environment. Agent: {self.agent_id}")
         
         self.loop.run_until_complete(self._send_message({
             'type': 'reset',
             'agentId': self.agent_id,
-            'data': {
-                'position': self.start_position.tolist(),
-                'target_position': self.target_position.tolist()
-            }
+            'data': {}
         }))
         
         state = self.loop.run_until_complete(self._receive_state())
         if 'data' in state:
-            self._agent_state.update(state.get('data', {}))
+            self._state.update(state.get('data', {}))
         
         return self._get_obs(), {}
     
-    def step(self, action: Union[np.ndarray, int]) -> Tuple[Dict[str, np.ndarray], float, bool, bool, Dict]:
+    def step(self, action: Union[np.ndarray, int]) -> Tuple[Dict[str, np.ndarray], float, bool, bool, Dict[str, Any]]:
         """
         Take a step in the environment.
         
@@ -258,18 +205,20 @@ class R3FEnv(gym.Env):
         """
         self.current_step += 1
         
-        if self.action_type == 'discrete' and isinstance(action, (int, np.integer)):
+        if isinstance(action, (int, np.integer)):
             continuous_action = np.zeros(3, dtype=np.float32)
-            if action == 0:  # forward
+            if action == 0:
                 continuous_action[2] = -1.0
-            elif action == 1:  # backward
+            elif action == 1:
                 continuous_action[2] = 1.0
-            elif action == 2:  # left
+            elif action == 2:
                 continuous_action[0] = -1.0
-            elif action == 3:  # right
+            elif action == 3:
                 continuous_action[0] = 1.0
             action_data = {'position': continuous_action.tolist()}
         else:
+            if not isinstance(action, np.ndarray):
+                action = np.array(action, dtype=np.float32)
             action_data = {'position': action.tolist()}
         
         self.loop.run_until_complete(self._send_message({
@@ -280,42 +229,31 @@ class R3FEnv(gym.Env):
         
         state = self.loop.run_until_complete(self._receive_state())
         if 'data' in state:
-            self._agent_state.update(state.get('data', {}))
+            self._state.update(state.get('data', {}))
         
-        position = np.array(self._agent_state.get('position', [0, 0, 0]), dtype=np.float32)
-        reward, done = self._calculate_reward(position)
-        
-        self._agent_state['reward'] = reward
-        self._agent_state['done'] = done
+        done = self.current_step >= self.max_episode_steps
+        self._state['done'] = done
         
         return (
             self._get_obs(),
-            reward,
+            self._state.get('reward', 0.0),
             done,
-            False,  # truncated
-            {'target_position': self.target_position.tolist(), 'distance': self.previous_distance}  # info
+            False,
+            {}
         )
     
     def _get_obs(self) -> Dict[str, np.ndarray]:
-        """Convert agent state to observation."""
-        position = np.array(self._agent_state.get('position', [0, 0, 0]), dtype=np.float32)
-        rotation = np.array(self._agent_state.get('rotation', [0, 0, 0]), dtype=np.float32)
+        """
+        Convert agent state to observation dictionary.
         
-        distance = np.linalg.norm(position - self.target_position)
-        
+        Returns:
+            Observation dictionary formatted according to the observation space
+        """
         if isinstance(self.observation_space, spaces.Dict):
             obs = {}
             for key in self.observation_space.spaces:
-                if key == 'position':
-                    obs[key] = position
-                elif key == 'rotation':
-                    obs[key] = rotation
-                elif key == 'target_position':
-                    obs[key] = self.target_position
-                elif key == 'distance_to_target':
-                    obs[key] = np.array([distance], dtype=np.float32)
-                elif key in self._agent_state:
-                    value = self._agent_state[key]
+                if key in self._state:
+                    value = self._state[key]
                     if isinstance(value, list):
                         obs[key] = np.array(value, dtype=np.float32)
                     else:
@@ -325,15 +263,16 @@ class R3FEnv(gym.Env):
                     obs[key] = np.zeros(shape, dtype=np.float32)
             return obs
         else:
-            return np.array(self._agent_state.get('position', [0, 0, 0]), dtype=np.float32)
+            return np.array(self._state.get('position', [0, 0, 0]), dtype=np.float32)
     
-    def close(self):
+    def close(self) -> None:
         """Close the environment and clean up resources."""
+        self.logger.info("Closing R3F environment")
         if self.loop:
             self.loop.run_until_complete(self._disconnect())
             self.loop = None
     
-    def render(self):
+    def render(self) -> None:
         """
         Render the environment.
         
